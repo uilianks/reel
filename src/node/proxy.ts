@@ -22,6 +22,9 @@ export interface ProxyOptions {
   file: string;
   name: string;
   scale?: number;
+  /** x264 preset and quality of each chunk: ultrafast / 26 for a proxy, medium / 18 for a final render drawn in chunks. */
+  preset?: string;
+  crf?: number;
   jobs?: number;
   signal?: AbortSignal;
   onProgress?: (done: number, total: number) => void;
@@ -30,7 +33,7 @@ export interface ProxyOptions {
 const stamp = (path: string) => { try { const s = statSync(path); return `${s.size}:${Math.round(s.mtimeMs)}`; } catch { return "missing"; } };
 
 /** Everything that can change the pixels of frames [first, last): the look of the trailer, the clips near them, the files they read. */
-function chunkKey(tl: Timeline, first: number, last: number, scale: number): string {
+function chunkKey(tl: Timeline, first: number, last: number, scale: number, quality: string): string {
   const fps = tl.def.fps, t0 = first / fps - 1.5, t1 = last / fps + 1.5;
   const strip = (d: ClipDef) => JSON.stringify(d, (k, v) => (k === "loc" ? undefined : v));
   const clips = tl.clips.filter((c) => c.start + c.dur >= t0 && c.start <= t1);
@@ -42,7 +45,7 @@ function chunkKey(tl: Timeline, first: number, last: number, scale: number): str
   }
   const { clips: _c, ...look } = tl.def as unknown as Record<string, unknown>;
   const h = createHash("sha1");
-  h.update(JSON.stringify({ look: JSON.parse(JSON.stringify(look, (k, v) => (k === "loc" ? undefined : v))), scale, first, last, n: tl.frames }));
+  h.update(JSON.stringify({ look: JSON.parse(JSON.stringify(look, (k, v) => (k === "loc" ? undefined : v))), scale, quality, first, last, n: tl.frames }));
   for (const c of clips) h.update(`${c.i}|${c.start.toFixed(4)}|${c.dur.toFixed(4)}|${strip(c.def)}`);
   for (const f of [...files].sort()) h.update(`${f}=${stamp(f)}`);
   return h.digest("hex").slice(0, 20);
@@ -51,14 +54,14 @@ function chunkKey(tl: Timeline, first: number, last: number, scale: number): str
 /** Draws the proxy of `full` into `out`; resolves with the ms it took and how many chunks were reused. */
 export async function renderProxy(full: Timeline, out: string, opts: ProxyOptions): Promise<{ ms: number; reused: number; chunks: number }> {
   const t0 = performance.now();
-  const scale = opts.scale ?? 0.5;
+  const scale = opts.scale ?? 0.5, preset = opts.preset ?? "ultrafast", crf = opts.crf ?? 26, quality = `${preset}/${crf}`;
   const tl = scaled(full, scale);
-  const cache = join(dirname(out), "cache", opts.name);
+  const cache = join(dirname(out), "cache", opts.name + (scale === 0.5 ? "" : `@${scale}`));
   mkdirSync(cache, { recursive: true });
   const plan: { first: number; last: number; path: string }[] = [];
   for (let f = 0; f < tl.frames; f += CHUNK) {
     const last = Math.min(f + CHUNK, tl.frames);
-    plan.push({ first: f, last, path: join(cache, chunkKey(full, f, last, scale) + ".mp4") });
+    plan.push({ first: f, last, path: join(cache, chunkKey(full, f, last, scale, quality) + ".mp4") });
   }
   const todo = plan.filter((c) => !existsSync(c.path));
   let done = plan.length - todo.length;
@@ -73,7 +76,7 @@ export async function renderProxy(full: Timeline, out: string, opts: ProxyOption
     while (!failure && !opts.signal?.aborted && next < todo.length) {
       const c = todo[next++], part = c.path.replace(/\.mp4$/, ".part.mp4");
       await new Promise<void>((ok) => {
-        const p = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", worker, opts.file, opts.name, String(scale), String(c.first), String(c.last), part], { stdio: ["ignore", "ignore", "pipe"] });
+        const p = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", worker, opts.file, opts.name, String(scale), String(c.first), String(c.last), part, preset, String(crf)], { stdio: ["ignore", "ignore", "pipe"] });
         running.add(p);
         let err = "";
         p.stderr.on("data", (b: Buffer) => { err += b; });

@@ -15,9 +15,10 @@ import { serve } from "./server.ts";
 
 const USAGE = `reel — video game trailers as code
 
-  reel build <trailer.rx.js> [--out DIR] [--only a,b] [--proxy] [--gif [WIDTH]] [--no-preview]
+  reel build <trailer.rx.js> [--out DIR] [--only a,b] [--proxy] [--scale N] [--gif [WIDTH]] [--no-preview]
       Render each trailer to out/<name>.mp4 (H.264 + AAC) and a contact sheet to
-      out/_preview/<name>.png. --proxy renders half size, fast, to out/_proxy/.
+      out/_preview/<name>.png. --proxy renders half size, fast, to out/_proxy/. --scale N renders N times the trailer's size (2 turns 1080p into 4K: titles and
+      overlays scale with it) at full quality, in cached chunks on every free core, to out/<name>_<w>x<h>.mp4.
       --gif also writes out/<name>.gif (480 px wide at 15 fps, or WIDTH px) for READMEs and posts.
   reel info  <trailer.rx.js> [name]
       Clip times, beat alignment, music loudness and hits per clip, warnings.
@@ -30,7 +31,7 @@ const USAGE = `reel — video game trailers as code
 
 Trailer files may be .js or .ts. Media paths are relative to the file. Needs ffmpeg.`;
 
-interface Args { cmd?: string; file?: string; rest: string[]; out?: string; only?: string[]; proxy?: boolean; preview?: boolean; port?: number; gif?: number }
+interface Args { cmd?: string; file?: string; rest: string[]; out?: string; only?: string[]; proxy?: boolean; scale?: number; preview?: boolean; port?: number; gif?: number }
 
 function parse(argv: string[]): Args {
   const a: Args = { rest: [] };
@@ -44,6 +45,7 @@ function parse(argv: string[]): Args {
     if (v === "--out") a.out = val();
     else if (v === "--only") a.only = val().split(",").map((s) => s.trim()).filter(Boolean);
     else if (v === "--proxy") a.proxy = true;
+    else if (v === "--scale") a.scale = Number(val());
     else if (v === "--gif") { const n = Number(argv[i + 1]); if (Number.isFinite(n) && n > 0) { a.gif = n; i++; } else a.gif = 480; }
     else if (v === "--no-preview") a.preview = false;
     else if (v === "--port") a.port = Number(val());
@@ -84,11 +86,12 @@ export async function main(argv: string[]): Promise<number> {
               mkdirSync(join(outDir, "_preview"), { recursive: true });
               writeFileSync(join(outDir, "_preview", name + ".png"), contactSheet(tl, r.music));
             }
-            const out = join(outDir, a.proxy ? "_proxy" : "", name + ".mp4");
+            const big = !a.proxy && a.scale !== undefined && a.scale !== 1;
+            const out = join(outDir, a.proxy ? "_proxy" : "", big ? `${name}_${Math.round(tl.def.w * a.scale!)}x${Math.round(tl.def.h * a.scale!)}.mp4` : name + ".mp4");
             let shown = -1;
             const onProgress = (f: number, n: number) => { const pc = Math.floor((f / n) * 10); if (process.stderr.isTTY && pc !== shown) { shown = pc; process.stderr.write(`\r${name} ${pc * 10}%`); } };
             // the proxy is drawn in cached chunks on every free core: an edit redraws only what it touched
-            const res = a.proxy ? await renderProxy(tl, out, { file, name, scale: 0.5, onProgress }) : await renderMp4(tl, out, { scale: 1, preset: "medium", crf: 18, onProgress });
+            const res = a.proxy ? await renderProxy(tl, out, { file, name, scale: 0.5, onProgress }) : big ? await renderProxy(tl, out, { file, name, scale: a.scale!, preset: "medium", crf: 18, onProgress }) : await renderMp4(tl, out, { scale: 1, preset: "medium", crf: 18, onProgress });
             if (process.stderr.isTTY) process.stderr.write("\r\x1b[K");
             let gifNote = "";
             if (a.gif) { const g = join(outDir, name + ".gif"); gifFromMp4(out, g, a.gif); gifNote = ` + ${g}`; }
