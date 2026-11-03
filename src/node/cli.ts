@@ -8,6 +8,7 @@ import { png } from "../core/png.ts";
 import type { Project } from "../core/project.ts";
 import { loadProject } from "./load.ts";
 import { FrameSource, inspect } from "./media.ts";
+import { renderProxy } from "./proxy.ts";
 import { gifFromMp4, renderMp4 } from "./render.ts";
 import { contactSheet, report } from "./report.ts";
 import { serve } from "./server.ts";
@@ -85,10 +86,9 @@ export async function main(argv: string[]): Promise<number> {
             }
             const out = join(outDir, a.proxy ? "_proxy" : "", name + ".mp4");
             let shown = -1;
-            const res = await renderMp4(tl, out, {
-              scale: a.proxy ? 0.5 : 1, preset: a.proxy ? "ultrafast" : "medium", crf: a.proxy ? 26 : 18,
-              onProgress: (f, n) => { const pc = Math.floor((f / n) * 10); if (process.stderr.isTTY && pc !== shown) { shown = pc; process.stderr.write(`\r${name} ${pc * 10}%`); } },
-            });
+            const onProgress = (f: number, n: number) => { const pc = Math.floor((f / n) * 10); if (process.stderr.isTTY && pc !== shown) { shown = pc; process.stderr.write(`\r${name} ${pc * 10}%`); } };
+            // the proxy is drawn in cached chunks on every free core: an edit redraws only what it touched
+            const res = a.proxy ? await renderProxy(tl, out, { file, name, scale: 0.5, onProgress }) : await renderMp4(tl, out, { scale: 1, preset: "medium", crf: 18, onProgress });
             if (process.stderr.isTTY) process.stderr.write("\r\x1b[K");
             let gifNote = "";
             if (a.gif) { const g = join(outDir, name + ".gif"); gifFromMp4(out, g, a.gif); gifNote = ` + ${g}`; }

@@ -56,7 +56,7 @@ per file; `--gif` for an animated GIF. Full API: [reference.md](reference.md). A
 
 ```bash
 reel build trailer.rx.js            # out/<name>.mp4 + out/_preview/<name>.png
-reel build trailer.rx.js --proxy    # half size, fast
+reel build trailer.rx.js --proxy    # half size, drawn in cached chunks on every free core
 reel info  trailer.rx.js            # cuts vs beats, music under each clip, warnings
 reel frame trailer.rx.js teaser 12.4
 reel serve trailer.rx.js            # live viewer on http://127.0.0.1:4340
@@ -74,6 +74,8 @@ captions, letterbox, fades); the viewer, the contact sheet, `frame` and the fina
 through it, so what the agent inspects is what gets encoded. Renders stream each shot through one
 ffmpeg decoder at the output frame rate, compose in JS, pipe raw frames to x264, and mix the audio
 in the same ffmpeg run. A 35 s 1080p30 trailer renders in about 50 s on a desktop CPU.
+
+The proxy (the live viewer's preview, `build --proxy`) is drawn in 45-frame chunks, one process per free core, each cached by a hash of what goes into its frames (the clips that touch it, the trailer's look, the sources' size and time); an edit redraws only the chunks it touched, then the chunks are joined without re-encoding and the sound is mixed once. A 59 s 1080p trailer: ~24 s cold, ~1 s unchanged, ~5 s after one caption edit (it was ~105 s each time).
 
 Needs Node ≥ 22.18 and ffmpeg. Text uses system fonts through fontconfig and resvg.
 

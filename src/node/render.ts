@@ -18,6 +18,8 @@ export interface RenderOptions {
   onProgress?: (frame: number, frames: number) => void;
   /** Stops the render (the live viewer cancels a proxy when the file changes). */
   signal?: AbortSignal;
+  /** Only these frames [from, to) are drawn, as a silent clip that starts at `from` (a chunk of a proxy: see proxy.ts). */
+  range?: [number, number];
 }
 
 /** ffmpeg audio inputs and the filter that mixes them into [a], or nothing if the trailer is silent. */
@@ -126,11 +128,14 @@ export async function renderMp4(full: Timeline, out: string, opts: RenderOptions
   const tl = scaled(full, opts.scale ?? 1);
   const { probes, warnings } = inspect(tl);
   const { w, h, fps } = tl.def;
-  const audio = audioGraph(tl, probes, 1);
+  const [first, last] = opts.range ?? [0, tl.frames];
+  // a chunk is silent: its sound is mixed once, over the joined chunks
+  const audio = opts.range ? { inputs: [] as string[], filter: undefined } : audioGraph(tl, probes, 1);
   mkdirSync(dirname(out), { recursive: true });
   const args = ["-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgba", "-s", `${w}x${h}`, "-r", String(fps), "-i", "pipe:0", ...audio.inputs,
     ...(audio.filter ? ["-filter_complex", audio.filter, "-map", "0:v", "-map", "[a]", "-c:a", "aac", "-b:a", "192k"] : ["-map", "0:v"]),
-    "-c:v", "libx264", "-preset", opts.preset ?? "medium", "-crf", String(opts.crf ?? 18), "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-t", tl.dur.toFixed(4), out];
+    "-c:v", "libx264", "-preset", opts.preset ?? "medium", "-crf", String(opts.crf ?? 18), "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+    ...(opts.range ? ["-frames:v", String(last - first)] : ["-t", tl.dur.toFixed(4)]), out];
   const ff = spawn("ffmpeg", args, { stdio: ["pipe", "ignore", "pipe"] });
   let err = "";
   ff.stderr.on("data", (b: Buffer) => { err += b; });
@@ -142,14 +147,14 @@ export async function renderMp4(full: Timeline, out: string, opts: RenderOptions
   ff.stdin.on("error", () => {}); // a dead ffmpeg surfaces through `done`
   const src = new StreamSources(tl, probes);
   try {
-    for (let f = 0; f < tl.frames; f++) {
+    for (let f = first; f < last; f++) {
       if (opts.signal?.aborted) throw new ReelError("render cancelled");
       const t = f / fps;
       await src.prepare(t);
       // A fresh image per frame: the pipe keeps a reference until it is flushed.
       const frame = frameAt(tl, t, src, image(w, h));
       if (!ff.stdin.write(frame.data)) await Promise.race([new Promise((r) => ff.stdin.once("drain", r)), done]);
-      opts.onProgress?.(f + 1, tl.frames);
+      opts.onProgress?.(f + 1 - first, last - first);
     }
   } catch (e) {
     ff.kill("SIGKILL");

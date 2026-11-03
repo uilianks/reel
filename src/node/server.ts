@@ -12,7 +12,7 @@ import type { Project, Timeline } from "../core/project.ts";
 import { FeedbackError, writeFeedback } from "./feedback.ts";
 import { loadProject } from "./load.ts";
 import { FrameSource, inspect } from "./media.ts";
-import { renderMp4 } from "./render.ts";
+import { renderProxy } from "./proxy.ts";
 import { clipText, report } from "./report.ts";
 
 export interface ServeOptions { port?: number; out?: string; log?: (line: string) => void }
@@ -57,11 +57,11 @@ export function serve(file: string, opts: ServeOptions = {}): Promise<{ url: str
       const final = join(out, "_proxy", t.name + ".mp4"), tmp = final.replace(/\.mp4$/, ".part.mp4");
       let lastPush = 0;
       try {
-        await renderMp4(tl, tmp, { scale: 0.5, preset: "ultrafast", crf: 26, signal, onProgress: (f, n) => {
+        const res = await renderProxy(tl, final, { file: abs, name: t.name, scale: 0.5, signal, onProgress: (f, n) => {
           t.proxy.progress = f / n;
           if (performance.now() - lastPush > 400) { lastPush = performance.now(); push(); }
         } });
-        renameSync(tmp, final);
+        log(`[reel] proxy ${t.name}: ${(res.ms / 1000).toFixed(1)}s, ${res.reused}/${res.chunks} chunks reused`);
         t.proxy = { state: "ready", progress: 1, version };
       } catch (e) {
         rmSync(tmp, { force: true });
