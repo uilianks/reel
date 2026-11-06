@@ -157,3 +157,7 @@ refreshes `docs/examples/`).
 ## License
 
 MIT
+
+## Support
+
+If this tool helps you, you can support its development on [Ko-fi](https://ko-fi.com/uiliankidricki).
