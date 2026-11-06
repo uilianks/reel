@@ -90,5 +90,5 @@ Placed `at` seconds into its clip. A bare path in `sfx:` means `sfx(path)`.
 | `reel serve f [--port 4340]` | Live viewer, proxy renders, feedback. |
 | `reel list f` | Trailers, lengths, locations. |
 
-Outputs: `out/<name>.mp4`, `out/<name>.gif` (`--gif`), `out/_proxy/<name>.mp4`, `out/_preview/<name>.png` (contact sheet),
+Outputs: `out/<name>.mp4` (rendered to `<name>.part.mp4`, renamed when complete; the same for the GIF), `out/<name>.gif` (`--gif`), `out/_proxy/<name>.mp4`, `out/_preview/<name>.png` (contact sheet),
 `out/_feedback/<name>.json` + `<name>.n<k>.png`.

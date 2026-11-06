@@ -1,7 +1,7 @@
 // Render a timeline to MP4: frames composed in order and piped to ffmpeg (H.264), mixed with the
 // music, sfx and any shot audio in the same ffmpeg run.
 import { spawn } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, renameSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
 import { type Img, type Sources, type TextSpec, frameAt, image, needs, scaled } from "../core/compose.ts";
 import { ReelError } from "../core/errors.ts";
@@ -118,9 +118,11 @@ class StreamSources implements Sources {
 
 /** An animated GIF from a rendered MP4 (two-pass palette), `width` px wide at `fps`, for READMEs, stores and social posts. */
 export function gifFromMp4(mp4: string, gif: string, width = 480, fps = 15): void {
-  const r = spawnSync("ffmpeg", ["-y", "-v", "error", "-i", mp4, "-vf", `fps=${fps},scale=${width}:-2:flags=lanczos,split[a][b];[a]palettegen=max_colors=255:stats_mode=diff[p];[b][p]paletteuse=dither=sierra2_4a`, "-loop", "0", gif]);
+  const part = gif.replace(/(\.gif)?$/, ".part.gif");
+  const r = spawnSync("ffmpeg", ["-y", "-v", "error", "-i", mp4, "-vf", `fps=${fps},scale=${width}:-2:flags=lanczos,split[a][b];[a]palettegen=max_colors=255:stats_mode=diff[p];[b][p]paletteuse=dither=sierra2_4a`, "-loop", "0", part]);
   if (r.error) throw new ReelError("--gif needs ffmpeg on PATH");
-  if (r.status !== 0) throw new ReelError(`ffmpeg failed (gif): ${String(r.stderr).trim().split("\n").slice(-3).join(" | ")}`);
+  if (r.status !== 0) { rmSync(part, { force: true }); throw new ReelError(`ffmpeg failed (gif): ${String(r.stderr).trim().split("\n").slice(-3).join(" | ")}`); }
+  renameSync(part, gif);
 }
 
 export async function renderMp4(full: Timeline, out: string, opts: RenderOptions = {}): Promise<{ ms: number; warnings: string[] }> {
@@ -132,10 +134,13 @@ export async function renderMp4(full: Timeline, out: string, opts: RenderOptions
   // a chunk is silent: its sound is mixed once, over the joined chunks
   const audio = opts.range ? { inputs: [] as string[], filter: undefined } : audioGraph(tl, probes, 1);
   mkdirSync(dirname(out), { recursive: true });
+  // ffmpeg writes beside the target and the file is renamed when complete: an interrupted or failed
+  // render never leaves a truncated MP4 under the real name (a player or a game would load it).
+  const part = out.replace(/(\.mp4)?$/, ".part.mp4");
   const args = ["-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgba", "-s", `${w}x${h}`, "-r", String(fps), "-i", "pipe:0", ...audio.inputs,
     ...(audio.filter ? ["-filter_complex", audio.filter, "-map", "0:v", "-map", "[a]", "-c:a", "aac", "-b:a", "192k"] : ["-map", "0:v"]),
     "-c:v", "libx264", "-preset", opts.preset ?? "medium", "-crf", String(opts.crf ?? 18), "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-    ...(opts.range ? ["-frames:v", String(last - first)] : ["-t", tl.dur.toFixed(4)]), out];
+    ...(opts.range ? ["-frames:v", String(last - first)] : ["-t", tl.dur.toFixed(4)]), part];
   const ff = spawn("ffmpeg", args, { stdio: ["pipe", "ignore", "pipe"] });
   let err = "";
   ff.stderr.on("data", (b: Buffer) => { err += b; });
@@ -158,11 +163,13 @@ export async function renderMp4(full: Timeline, out: string, opts: RenderOptions
     }
   } catch (e) {
     ff.kill("SIGKILL");
+    rmSync(part, { force: true });
     throw e;
   } finally {
     src.close();
     ff.stdin.end();
   }
-  await done;
+  try { await done; } catch (e) { rmSync(part, { force: true }); throw e; }
+  renameSync(part, out);
   return { ms: Math.round(performance.now() - t0), warnings };
 }

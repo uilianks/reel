@@ -52,6 +52,76 @@ subtitles; `fade dip flash wipe slide zoom` transitions; `overlay` images, GIFs 
 vignette) per clip or for the whole trailer; `sfx` on any clip; letterbox and fades; several trailers
 per file; `--gif` for an animated GIF. Full API: [reference.md](reference.md). Agent guide: [SKILL.md](SKILL.md).
 
+## Examples
+
+Rendered by `npm run examples` from the files in [`examples/`](examples). The footage is the art-tool
+family's own output (pxl scenes, a vex poster, chirp music), copied into
+[`examples/media/`](examples/media) with where each file came from.
+
+**A teaser cut on the beat** ([`examples/teaser.rx.js`](examples/teaser.rx.js)): 96 bpm chirp theme,
+camera moves over pixel-art scenes, title cards, `dip` / `flash` / `slide` / `wipe` transitions.
+
+```js
+// A 10 s teaser cut on the beat of a chirp theme (96 bpm): pixel-art scenes from pxl, a vex poster,
+// title cards, camera moves and transitions. Build: reel build examples/teaser.rx.js --gif 480
+trailer("teaser", { w: 640, h: 360, fps: 30, bpm: 96, music: { src: "media/theme.ogg", fadeOut: 1 }, letterbox: 2, fadeIn: 0.5 },
+  shot("media/no_magic_night.gif", { beats: 4, pixel: true, move: { zoom: [1, 1.25], y: [0.55, 0.7] } }),
+  title("SOMETHING IS BREWING", { beats: 2, size: 34, tracking: 0.16, in: dip(0.3) }),
+  shot("media/cave.gif", { beats: 2, pixel: true, move: { zoom: [1.1, 1.3], x: [0.3, 0.6] }, in: flash(0.2) }),
+  shot("media/forest_kit_poster.png", { beats: 2, move: { zoom: [1.3, 1.1], x: 0.4 }, in: slide(0.3, "right") }),
+  shot("media/forest_kit_anims.gif", { beats: 2, fit: "contain", bg: "#1d2b3a", in: wipe(0.3) }),
+  title("NO MAGIC", { beats: 4, size: 72, sub: "A REEL EXAMPLE", anim: "punch", in: flash(0.25) }))
+```
+
+[![teaser](docs/examples/teaser.gif)](docs/examples/teaser.mp4)
+
+▶ [MP4 with sound](docs/examples/teaser.mp4) · [contact sheet](docs/examples/teaser_sheet.png)
+
+**A 9:16 short** ([`examples/vertical.rx.js`](examples/vertical.rx.js)): one wide poster re-aimed by
+`move`, captions, a night `grade`, pixel torches as `overlay`s on the end card, a cave ambience.
+
+```js
+// A 9:16 short for phones: one wide poster re-aimed by camera moves, captions, a night grade, pixel
+// torches as overlays on the end card, and a cave ambience under it all.
+// Build: reel build examples/vertical.rx.js --gif 240
+const poster = "media/forest_kit_poster.png"
+const torch = (x) => ({ src: "media/torch.gif", x, y: 0.3, h: 0.13, pixel: true })
+trailer("vertical", { w: 360, h: 640, fps: 30, music: { src: "media/cave.ogg", fadeOut: 0.8 }, fadeIn: 0.4, fadeOut: 0.4 },
+  shot(poster, { dur: 2.2, move: { zoom: [1, 1.1], x: [0.15, 0.35] }, caption: { text: "Deep in the forest...", size: 26 } }),
+  shot(poster, { dur: 2.2, move: { zoom: [1.4, 1.6], x: [0.6, 0.8], y: 0.6 }, in: fade(0.4),
+    caption: { text: "...the torches burn", size: 26 },
+    grade: { brightness: -0.08, saturation: 0.8, tint: "#3050a0", tintAmount: 0.2, vignette: 0.6 } }),
+  title("FOREST KIT", { dur: 1.6, size: 48, sub: "vex · pxl · chirp", in: dip(0.4), overlay: [torch(0.36), torch(0.64)] }))
+```
+
+[![vertical: contact sheet](docs/examples/vertical_sheet.png)](docs/examples/vertical.mp4)
+
+▶ [MP4 with sound](docs/examples/vertical.mp4)
+
+**Every transition** ([`examples/transitions.rx.js`](examples/transitions.rx.js)): one clip per
+transition, each captioned with the call that made it; plain JS builds the clips.
+
+```js
+// Every transition, one per beat-pair, each labelled with its own call. One still re-framed per clip
+// (move keeps a chosen point centred), so the transitions are easy to read.
+// Build: reel build examples/transitions.rx.js --gif 480
+const still = "media/forest_kit_poster.png"
+const look = (x, y, call, transition) =>
+  shot(still, { beats: 2, move: { zoom: 2.2, x, y }, in: transition, caption: { text: call, size: 30, pos: "top" } })
+trailer("transitions", { w: 640, h: 360, fps: 30, bpm: 96, music: { src: "media/theme.ogg", fadeOut: 0.6 } },
+  look(0.2, 0.5, '"cut"', "cut"),
+  look(0.4, 0.4, "fade(0.5)", fade(0.5)),
+  look(0.6, 0.5, "dip(0.6)", dip(0.6)),
+  look(0.8, 0.6, "flash(0.25)", flash(0.25)),
+  look(0.3, 0.7, "wipe(0.4)", wipe(0.4)),
+  look(0.7, 0.3, 'slide(0.4, "up")', slide(0.4, "up")),
+  look(0.5, 0.5, "zoom(0.5)", zoom(0.5)))
+```
+
+[![transitions: contact sheet](docs/examples/transitions_sheet.png)](docs/examples/transitions.mp4)
+
+▶ [MP4 with sound](docs/examples/transitions.mp4)
+
 ## Commands
 
 ```bash
@@ -77,7 +147,12 @@ in the same ffmpeg run. A 35 s 1080p30 trailer renders in about 50 s on a deskto
 
 The proxy (the live viewer's preview, `build --proxy`) is drawn in 45-frame chunks, one process per free core, each cached by a hash of what goes into its frames (the clips that touch it, the trailer's look, the sources' size and time); an edit redraws only the chunks it touched, then the chunks are joined without re-encoding and the sound is mixed once. A 59 s 1080p trailer: ~24 s cold, ~1 s unchanged, ~5 s after one caption edit (it was ~105 s each time).
 
-Needs Node ≥ 22.18 and ffmpeg. Text uses system fonts through fontconfig and resvg.
+Needs Node ≥ 22.18 and ffmpeg. Text uses system fonts through fontconfig and resvg. A render is
+written to `<name>.part.mp4` and renamed when it completes, so a failed or cancelled render never
+leaves a truncated MP4 under the real name.
+
+`npm run check` typechecks, runs the tests and renders every example (`npm run examples`, which also
+refreshes `docs/examples/`).
 
 ## License
 

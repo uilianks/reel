@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
@@ -95,6 +95,14 @@ test("renders an MP4 with the right length, size, picture and sound", async () =
   const blue = at(0.5), red = at(1.33);
   assert.ok(blue[2] > 180 && blue[0] < 60, `blue ${blue}`);
   assert.ok(red[0] > 180 && red[2] < 60, `red ${red}`);
+  assert.ok(!existsSync(join(dir, "t.part.mp4")), "the part file was renamed");
+});
+
+test("a render that fails or is cancelled leaves no MP4 under the real name", async () => {
+  const p = loadSource(`trailer("c", { w: 64, h: 36, fps: 30 }, shot("red.png", { dur: 2 }))`, "c.rx.js", dir);
+  const out = join(dir, "c.mp4"), ac = new AbortController();
+  await assert.rejects(renderMp4(p.timeline("c"), out, { signal: ac.signal, onProgress: (f) => { if (f === 10) ac.abort(); } }), /cancelled/);
+  assert.ok(!existsSync(out) && !existsSync(join(dir, "c.part.mp4")));
 });
 
 test("the live viewer serves state, exact frames and feedback", async () => {
